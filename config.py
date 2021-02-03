@@ -20,7 +20,7 @@ ko = '가각간갇갈감갑값갓강갖같갚개객걀걔거걱건걷걸검겁�
 math = [
         '\\begin', '\\cos', '\\cot', '\\csc', '\\end', '\\frac',
         '\\hat', '\\hline',  '\\int', '\\left',   '\\lim', '\\ln', '\\log', '\\max', '\\min', '\\not', '\\overbrace', '\\overleftarrow'
-        '\\prod', '\\right', '\\sec', '\\sin', '\\sqrt', '\\sum', '\\overline',
+        '\\prod', '\\right', '\\sec', '\\sin', '\\sqrt', '\\sum', '\\overline', '\\overset', '\\frown',
         '\\tan',  '\\quad', '\\qquad',    '\\dot', '\\underbrace', '\\underline', '\\vec'
         '\\{', '\\}',
 ]
