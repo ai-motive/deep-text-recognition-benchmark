@@ -10,7 +10,6 @@ import torch.nn.init as init
 import torch.optim as optim
 import torch.utils.data
 import numpy as np
-
 from utils import CTCLabelConverter, CTCLabelConverterForBaiduWarpctc, AttnLabelConverter, Averager
 from dataset import hierarchical_dataset, AlignCollate, Batch_Balanced_Dataset
 from model import Model
@@ -18,6 +17,12 @@ from test import validation
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 from config import *
 
+
+def str2bool(v):
+    if v == 'True':
+        return True
+    elif v == 'False':
+        return False
 
 def train(opt):
     """ dataset preparation """
@@ -77,7 +82,11 @@ def train(opt):
             continue
 
     # data parallel for multi-GPU
-    model = torch.nn.DataParallel(model).to(device)
+    if device.type == 'cuda':
+        cuda_ids = [int(id) for id in opt.cuda_ids]
+        model = torch.nn.DataParallel(model, device_ids=cuda_ids).to(device)
+    else:
+        model = torch.nn.DataParallel(model).to(device)
     model.train()
     if opt.saved_model != '':
         print(f'loading pretrained model from {opt.saved_model}')
@@ -226,9 +235,10 @@ def train(opt):
             sys.exit()
         iteration += 1
 
-
-if __name__ == '__main__':
+def main(argv):
     parser = argparse.ArgumentParser()
+    parser.add_argument('--cuda', default=True, type=str2bool, help='Use CUDA to train model')
+    parser.add_argument('--cuda_ids', default=[0], type=list, help='Allocate GPU to train model')
     parser.add_argument('--exp_name', help='Where to store logs and models')
     parser.add_argument('--train_data', required=True, help='path to training dataset')
     parser.add_argument('--valid_data', required=True, help='path to validation dataset')
@@ -247,9 +257,11 @@ if __name__ == '__main__':
     parser.add_argument('--grad_clip', type=float, default=5, help='gradient clipping value. default=5')
     parser.add_argument('--baiduCTC', action='store_true', help='for data_filtering_off mode')
     """ Data processing """
-    parser.add_argument('--select_data', type=str, default='MJ-ST',
+    # parser.add_argument('--select_data', type=str, default='MJ-ST',   # default
+    parser.add_argument('--select_data', type=str, default='/',
                         help='select training data (default is MJ-ST, which means MJ and ST used as training data)')
-    parser.add_argument('--batch_ratio', type=str, default='0.5-0.5',
+    # parser.add_argument('--batch_ratio', type=str, default='0.5-0.5', # default
+    parser.add_argument('--batch_ratio', type=str, default='1',
                         help='assign ratio for each selected data in the batch')
     parser.add_argument('--total_data_usage_ratio', type=str, default='1.0',
                         help='total data usage ratio, this ratio is multiplied to total number of data.')
@@ -257,10 +269,10 @@ if __name__ == '__main__':
     parser.add_argument('--imgH', type=int, default=32, help='the height of the input image')
     parser.add_argument('--imgW', type=int, default=100, help='the width of the input image')
     parser.add_argument('--rgb', action='store_true', help='use rgb input')
-    # parser.add_argument('--character', type=str,
+    # parser.add_argument('--character', type=str,  # default
     #                     default='0123456789abcdefghijklmnopqrstuvwxyz', help='character label')
-    parser.add_argument('--character', type=str,
-                        default=', ㄱㄴㄷㄹ', help='character label')
+    parser.add_argument('--character', type=list,
+                        default='1234', help='character label list')
     parser.add_argument('--sensitive', action='store_true', help='for sensitive character mode')
     parser.add_argument('--PAD', action='store_true', help='whether to keep ratio then pad for image resize')
     parser.add_argument('--data_filtering_off', action='store_true', help='for data_filtering_off mode')
@@ -277,7 +289,7 @@ if __name__ == '__main__':
                         help='the number of output channel of Feature extractor')
     parser.add_argument('--hidden_size', type=int, default=256, help='the size of the LSTM hidden state')
 
-    opt = parser.parse_args()
+    opt = parser.parse_args(argv)
 
     if not opt.exp_name:
         opt.exp_name = f'{opt.Transformation}-{opt.FeatureExtraction}-{opt.SequenceModeling}-{opt.Prediction}'
@@ -291,7 +303,7 @@ if __name__ == '__main__':
         # opt.character += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
         opt.character = string.printable[:-6]  # same with ASTER setting (use 94 char).
 
-    character = list(number + symbol + english)
+    character = list(number + symbol + english + ko)
     print(len(character))
     opt.character = character + math
 
@@ -322,3 +334,9 @@ if __name__ == '__main__':
         """
 
     train(opt)
+
+    return True
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

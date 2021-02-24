@@ -31,9 +31,22 @@ class CTCLabelConverter(object):
         # The index used for padding (=0) would not affect the CTC loss calculation.
         batch_text = torch.LongTensor(len(text), batch_max_length).fill_(0)
         for i, t in enumerate(text):
-            text = list(t)
-            text = [self.dict[char] for char in text]
-            batch_text[i][:len(text)] = torch.LongTensor(text)
+            if ('\\' in t):
+                text = encode_truth(t, self.dict)
+            else:
+                try:    ###
+                    text = list(t)
+                    text = [self.dict[char] for char in text]
+                except Exception as e:  ###
+                    print(e)    ###
+                    if 'ㅇ' in text: ###
+                        print() ###
+            try:
+                batch_text[i][:len(text)] = torch.LongTensor(text)
+            except Exception as e:  ###
+                print(e)    ###
+                if 'ㅇ' in text: ###
+                    print() ###
         return (batch_text.to(device), torch.IntTensor(length).to(device))
 
     def decode(self, text_index, length):
@@ -167,3 +180,25 @@ class Averager(object):
         if self.n_count != 0:
             res = self.sum / float(self.n_count)
         return res
+
+
+# Rather ignorant way to encode the truth, but at least it works.
+def encode_truth(truth, token_to_id):
+    truth_tokens = []
+    # remaining_truth = remove_unknown_tokens(truth).strip()
+    remaining_truth = truth.strip()
+    while len(remaining_truth) > 0:
+        try:
+            matching_starts = [
+                [i, len(tok)]
+                for tok, i in token_to_id.items()
+                if remaining_truth.startswith(tok)
+            ]
+            # Take the longest match
+            index, tok_len = max(matching_starts, key=lambda match: match[1])
+            truth_tokens.append(index)
+            remaining_truth = remaining_truth[tok_len:].lstrip()
+        except ValueError:
+            raise Exception("Truth contains unknown token : {}".format(remaining_truth))
+            pass
+    return truth_tokens
