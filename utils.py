@@ -1,3 +1,4 @@
+from utility import str_utils
 import torch
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -31,22 +32,13 @@ class CTCLabelConverter(object):
         # The index used for padding (=0) would not affect the CTC loss calculation.
         batch_text = torch.LongTensor(len(text), batch_max_length).fill_(0)
         for i, t in enumerate(text):
-            if ('\\' in t):
-                text = encode_truth(t, self.dict)
-            else:
-                try:    ###
-                    text = list(t)
-                    text = [self.dict[char] for char in text]
-                except Exception as e:  ###
-                    print(e)    ###
-                    if 'ㅇ' in text: ###
-                        print() ###
+            text = encode_truth(t, self.dict)
+
             try:
                 batch_text[i][:len(text)] = torch.LongTensor(text)
             except Exception as e:  ###
                 print(e)    ###
-                if 'ㅇ' in text: ###
-                    print() ###
+
         return (batch_text.to(device), torch.IntTensor(length).to(device))
 
     def decode(self, text_index, length):
@@ -186,7 +178,8 @@ class Averager(object):
 def encode_truth(truth, token_to_id):
     truth_tokens = []
     # remaining_truth = remove_unknown_tokens(truth).strip()
-    remaining_truth = truth.strip()
+    positions = str_utils.extract_formula_positions_from_text(truth)    ##
+    remaining_truth = str_utils.strip_text_by_positions(truth, positions) ##
     while len(remaining_truth) > 0:
         try:
             matching_starts = [
@@ -199,6 +192,6 @@ def encode_truth(truth, token_to_id):
             truth_tokens.append(index)
             remaining_truth = remaining_truth[tok_len:].lstrip()
         except ValueError:
-            raise Exception("Truth contains unknown token : {}".format(remaining_truth))
-            pass
+            print("Truth contains unknown token : {}".format(remaining_truth))
+            break
     return truth_tokens

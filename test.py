@@ -10,11 +10,11 @@ import torch.utils.data
 import torch.nn.functional as F
 import numpy as np
 from nltk.metrics.distance import edit_distance
-
 from utils import CTCLabelConverter, AttnLabelConverter, Averager
 from dataset import hierarchical_dataset, AlignCollate
 from model import Model
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+from utility import str_utils
 
 
 def benchmark_all_eval(model, criterion, converter, opt, calculate_infer_time=False):
@@ -132,6 +132,13 @@ def validation(model, criterion, evaluation_loader, converter, opt):
 
         infer_time += forward_time
         valid_loss_avg.add(cost)
+
+        # strip labels & preds_str
+        for i, (label, pred) in enumerate(zip(labels, preds_str)):
+            label_positions = str_utils.extract_formula_positions_from_text(label)  ##
+            labels[i] = str_utils.strip_text_by_positions(label, label_positions)  ##
+            pred_positions = str_utils.extract_formula_positions_from_text(pred)  ##
+            preds_str[i] = str_utils.strip_text_by_positions(pred, pred_positions)  ##
 
         # calculate accuracy & confidence score
         preds_prob = F.softmax(preds, dim=2)
