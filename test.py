@@ -137,8 +137,8 @@ def validation(model, criterion, evaluation_loader, converter, opt):
         for i, (label, pred) in enumerate(zip(labels, preds_str)):
             label_positions = str_utils.extract_formula_positions_from_text(label)  ##
             labels[i] = str_utils.strip_text_by_positions(label, label_positions)  ##
-            pred_positions = str_utils.extract_formula_positions_from_text(pred)  ##
-            preds_str[i] = str_utils.strip_text_by_positions(pred, pred_positions)  ##
+            # pred_positions = str_utils.extract_formula_positions_from_text(pred)  ##
+            # preds_str[i] = str_utils.strip_text_by_positions(pred, pred_positions)  ##
 
         # calculate accuracy & confidence score
         preds_prob = F.softmax(preds, dim=2)
