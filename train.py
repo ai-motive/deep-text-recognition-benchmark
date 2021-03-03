@@ -84,7 +84,7 @@ def train(opt):
     # data parallel for multi-GPU
     if device.type == 'cuda':
         cuda_ids = [int(id) for id in opt.cuda_ids]
-        model = torch.nn.DataParallel(model, device_ids=cuda_ids).to(device)
+        model = torch.nn.DataParallel(model, device_ids=cuda_ids)
     else:
         model = torch.nn.DataParallel(model).to(device)
     model.train()

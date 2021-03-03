@@ -23,7 +23,7 @@ def main_generate(ini, logger=None):
 
         # Load json
         _, ann_core_name, _ = utils.split_fname(ann_fname)
-        # if ann_core_name == img_core_name + img_ext: # 뒤에 .json
+        ann_core_name = ann_core_name.replace('.jpg', '')
         with open(ann_fname) as json_file:
             json_data = json.load(json_file)
             objects = json_data['objects']
@@ -236,7 +236,7 @@ def parse_arguments(argv):
 
 
 SELF_TEST_ = True
-OP_MODE = 'TRAIN' # GENERATE_GT / SPLIT / CROP_IMG / CREATE_LMDB / TRAIN / TEST / TRAIN_TEST
+OP_MODE = 'TRAIN' # GENERATE_GT / SPLIT_GT / CROP_IMG / CREATE_LMDB / TRAIN / TEST / TRAIN_TEST
 INI_FNAME = _this_basename_ + ".ini"
 
 
