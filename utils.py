@@ -190,7 +190,7 @@ def encode_truth(truth, token_to_id):
             # Take the longest match
             index, tok_len = max(matching_starts, key=lambda match: match[1])
             truth_tokens.append(index)
-            remaining_truth = remaining_truth[tok_len:].lstrip()
+            remaining_truth = remaining_truth[tok_len:]
         except ValueError:
             print("Truth contains unknown token : {}".format(remaining_truth))
             break
