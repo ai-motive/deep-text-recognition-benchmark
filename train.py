@@ -14,7 +14,6 @@ from utils import CTCLabelConverter, CTCLabelConverterForBaiduWarpctc, AttnLabel
 from dataset import hierarchical_dataset, AlignCollate, Batch_Balanced_Dataset
 from model import Model
 from test import validation
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 from config import *
 
 
@@ -82,9 +81,13 @@ def train(opt):
             continue
 
     # data parallel for multi-GPU
+    device = torch.device('cuda' if (torch.cuda.is_available() and opt.cuda) else 'cpu')
     if device.type == 'cuda':
         cuda_ids = [int(id) for id in opt.cuda_ids]
-        model = torch.nn.DataParallel(model, device_ids=cuda_ids)
+        if len(cuda_ids) > 1:
+            model = torch.nn.DataParallel(model, device_ids=cuda_ids).cuda()
+        else:
+            model = torch.nn.DataParallel(model, device_ids=cuda_ids)
     else:
         model = torch.nn.DataParallel(model).to(device)
     model.train()

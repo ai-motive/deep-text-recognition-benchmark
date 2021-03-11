@@ -5,6 +5,7 @@ import argparse
 import create_lmdb_dataset, train, test
 from sklearn.model_selection import train_test_split
 from utility import general_utils as utils
+from utility import multi_process
 
 
 _this_folder_ = os.path.dirname(os.path.abspath(__file__))
@@ -112,37 +113,49 @@ def main_crop(ini, model_dir=None, logger=None):
         elif craft_list is craft_test_list:
             tar_mode = 'TEST'
 
-        for file_idx, craft_fpath in enumerate(craft_list):
-            # read craft gt. file
-            with open(craft_fpath, "r", encoding="utf8") as f:
-                craft_infos = f.readlines()
-                for tl_idx, craft_info in enumerate(craft_infos):
-                    box = craft_info.split(',')[:8]
-                    box = [int(pos) for pos in box]
-                    x1, y1, x3, y3 = box[0], box[1], box[4], box[5]
+        available_cpus = len(os.sched_getaffinity(0))
+        mp_inputs = [(craft_fpath, ini, tar_mode) for file_idx, craft_fpath in enumerate(craft_list)]
 
-                    _, core_name, _ = utils.split_fname(craft_fpath)
-                    img_fname = core_name.replace('gt_', '')
+        # Multiprocess func.
+        multi_process.run(func=load_craft_gt_and_save_crop_images, data=mp_inputs,
+                          n_workers=available_cpus, n_tasks=len(craft_list), max_queue_size=len(craft_list))
 
-                    if tar_mode == 'TRAIN':
-                        raw_img_path = os.path.join(ini['train_img_path'], img_fname + '.jpg')
-                        rst_fpath = os.path.join(ini['train_crop_path'], img_fname + '_crop_' + '{0:03d}'.format(tl_idx) + '.jpg')
-                    elif tar_mode == 'TEST':
-                        raw_img_path = os.path.join(ini['test_img_path'], img_fname + '.jpg')
-                        rst_fpath = os.path.join(ini['test_crop_path'], img_fname + '_crop_' + '{0:03d}'.format(tl_idx) + '.jpg')
+    return True
 
-                    if not(utils.file_exists(raw_img_path, print_=True)):
-                        continue
+def load_craft_gt_and_save_crop_images(craft_fpath, ini, tar_mode, print_=False):
+    # load craft gt. file
+    with open(craft_fpath, "r", encoding="utf8") as f:
+        craft_infos = f.readlines()
+        for tl_idx, craft_info in enumerate(craft_infos):
+            box = craft_info.split(',')[:8]
+            box = [int(pos) for pos in box]
+            x1, y1, x3, y3 = box[0], box[1], box[4], box[5]
 
-                    img = utils.imread(raw_img_path, color_fmt='RGB')
-                    crop_img = img[y1:y3, x1:x3]
+            _, core_name, _ = utils.split_fname(craft_fpath)
+            img_fname = core_name.replace('gt_', '')
 
-                    if utils.file_exists(rst_fpath):
-                        continue
-                    else:
-                        utils.imwrite(crop_img, rst_fpath)
+            if tar_mode == 'TRAIN':
+                raw_img_path = os.path.join(ini['train_img_path'], img_fname + '.jpg')
+                rst_fpath = os.path.join(ini['train_crop_path'],
+                                         img_fname + '_crop_' + '{0:03d}'.format(tl_idx) + '.jpg')
+            elif tar_mode == 'TEST':
+                raw_img_path = os.path.join(ini['test_img_path'], img_fname + '.jpg')
+                rst_fpath = os.path.join(ini['test_crop_path'],
+                                         img_fname + '_crop_' + '{0:03d}'.format(tl_idx) + '.jpg')
 
-            logger.info(" [CROP-{} IMG] # Processing {} ({:d}/{:d})".format(tar_mode, core_name, (file_idx+1), len(craft_list)))
+            if not (utils.file_exists(raw_img_path, print_=True)):
+                print("  # Raw image doesn't exists at {}".format(raw_img_path))
+                continue
+
+            img = utils.imread(raw_img_path, color_fmt='RGB')
+            crop_img = img[y1:y3, x1:x3]
+
+            if utils.file_exists(rst_fpath):
+                print("  # Save image already exists at {}".format(rst_fpath))
+                pass
+            else:
+                utils.imwrite(crop_img, rst_fpath)
+                print("  #  ({:d}/{:d}) Saved at {} ".format(tl_idx, len(craft_infos), rst_fpath))
 
     return True
 
@@ -236,7 +249,7 @@ def parse_arguments(argv):
 
 
 SELF_TEST_ = True
-OP_MODE = 'TRAIN' # GENERATE_GT / SPLIT_GT / CROP_IMG / CREATE_LMDB / TRAIN / TEST / TRAIN_TEST
+OP_MODE = 'CROP_IMG' # GENERATE_GT / SPLIT_GT / CROP_IMG / CREATE_LMDB / TRAIN / TEST / TRAIN_TEST
 INI_FNAME = _this_basename_ + ".ini"
 
 
