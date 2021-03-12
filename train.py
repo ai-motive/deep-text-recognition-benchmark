@@ -170,8 +170,11 @@ def train(opt):
                 cost = criterion(preds, text, preds_size, length) / batch_size
             else:
                 preds = preds.log_softmax(2).permute(1, 0, 2)
-                cost = criterion(preds, text, preds_size, length)
-
+                try:
+                    cost = criterion(preds, text, preds_size, length)
+                except Exception as e:
+                    print(e)
+                    continue
         else:
             preds = model(image, text[:, :-1])  # align with Attention.forward
             target = text[:, 1:]  # without [GO] Symbol
