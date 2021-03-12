@@ -33,6 +33,7 @@ class CTCLabelConverter(object):
         batch_text = torch.LongTensor(len(text), batch_max_length).fill_(0)
         for i, t in enumerate(text):
             text = encode_truth(t, self.dict)
+            text = text.replace('　', ' ').replace('', ')') ### to be removed
 
             try:
                 batch_text[i][:len(text)] = torch.LongTensor(text)

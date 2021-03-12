@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import argparse
+import subprocess
 import create_lmdb_dataset, train, test
 from sklearn.model_selection import train_test_split
 from utility import general_utils as utils
@@ -175,6 +176,102 @@ def main_create(ini, model_dir=None, logger=None):
 
     return True
 
+def main_merge(ini, model_dir=None, logger=None):
+    global src_train_gt_path, src_test_gt_path, dst_train_gt_path, dst_test_gt_path
+    utils.folder_exists(ini['total_dataset_path'], create_=True)
+
+    datasets = [dataset for dataset in os.listdir(ini['dataset_path']) if dataset != 'total']
+    sort_datasets = sorted(datasets, key=lambda x: (int(x.split('_')[0])))
+
+    # Process total files
+    train_gt_text_paths = []
+    test_gt_text_paths = []
+    if len(sort_datasets) != 0:
+        for dir_name in sort_datasets:
+            src_train_path, src_test_path = os.path.join(ini['dataset_path'], dir_name, 'train'), os.path.join(ini['dataset_path'], dir_name, 'test')
+            src_train_crop_img_path = os.path.join(src_train_path, 'crnn_gt/crop_img/')
+            src_test_crop_img_path = os.path.join(src_test_path, 'crnn_gt/crop_img/')
+
+            dst_train_path, dst_test_path = os.path.join(ini['total_dataset_path'], 'train'), os.path.join(ini['total_dataset_path'], 'test')
+            dst_train_crop_img_path = os.path.join(dst_train_path, 'crnn_gt/crop_img/')
+            dst_test_crop_img_path = os.path.join(dst_test_path, 'crnn_gt/crop_img/')
+
+            if utils.folder_exists(dst_train_crop_img_path) and utils.folder_exists(dst_test_crop_img_path):
+                logger.info(" # Already {} is exist".format(ini['total_dataset_path']))
+            else:
+                utils.folder_exists(dst_train_crop_img_path, create_=True), utils.folder_exists(dst_test_crop_img_path, create_=True)
+
+            # Apply symbolic link for gt & img path
+            for tar_mode in ['TRAIN', 'TEST']:
+                if tar_mode is 'TRAIN':
+                    src_crop_img_path = src_train_crop_img_path
+                    dst_crop_img_path = dst_train_crop_img_path
+                elif tar_mode is 'TEST':
+                    src_crop_img_path = src_test_crop_img_path
+                    dst_crop_img_path = dst_test_crop_img_path
+
+                # link img_path
+                src_crop_imgs = sorted(utils.get_filenames(src_crop_img_path, extensions=utils.IMG_EXTENSIONS))
+                dst_crop_imgs = sorted(utils.get_filenames(dst_crop_img_path, extensions=utils.IMG_EXTENSIONS))
+
+                src_crop_fnames = [utils.split_fname(crop_img)[1] for crop_img in src_crop_imgs]
+                dst_crop_fnames = [utils.split_fname(crop_img)[1] for crop_img in dst_crop_imgs]
+                if any(src_fname not in dst_crop_fnames for src_fname in src_crop_fnames):
+                    img_sym_cmd = 'find {} -name "*.jpg" -exec ln {} {} \;'.format(src_crop_img_path, '{}', dst_crop_img_path) # link each files
+                    # img_sym_cmd = 'ln "{}"* "{}"'.format(src_crop_img_path, dst_crop_img_path)  # argument is long
+                    subprocess.call(img_sym_cmd, shell=True)
+                    logger.info(" # Link img files {} -> {}.".format(src_crop_img_path, dst_crop_img_path))
+                else:
+                    logger.info(" # Link img files already generated : {}.".format(dst_crop_img_path))
+
+            # Add to list all label files
+            for tar_mode in ['TRAIN', 'TEST']:
+                if tar_mode == 'TRAIN':
+                    src_train_gt_path = os.path.join(src_train_path, 'crnn_gt', 'labels.txt')
+                    train_gt_text_paths.append(src_train_gt_path)
+
+                    dst_train_gt_path = os.path.join(dst_train_path, 'crnn_gt', 'labels.txt')
+
+                elif tar_mode == 'TEST':
+                    src_test_gt_path = os.path.join(src_test_path, 'crnn_gt', 'labels.txt')
+                    test_gt_text_paths.append(src_test_gt_path)
+
+                    dst_test_gt_path = os.path.join(dst_test_path, 'crnn_gt', 'labels.txt')
+
+        logger.info(" # Train gt paths : {}".format(train_gt_text_paths))
+        logger.info(" # Test gt paths : {}".format(test_gt_text_paths))
+
+        # Merge all label files
+        with open(dst_train_gt_path, 'w') as outfile:
+            for fpath in train_gt_text_paths:
+                with open(fpath) as infile:
+                    for line in infile:
+                        outfile.write(line)
+
+        with open(dst_test_gt_path, 'w') as outfile:
+            for fpath in test_gt_text_paths:
+                with open(fpath) as infile:
+                    for line in infile:
+                        outfile.write(line)
+
+        logger.info(" # Train & Test gt files are merged !!!")
+
+        for tar_mode in ['TRAIN', 'TEST']:
+            logger.info(" [CREATE-{}] # Create lmdb dataset".format(tar_mode))
+            if tar_mode == 'TRAIN':
+                crop_img_path = dst_train_crop_img_path
+                gt_fpath = dst_train_gt_path
+                lmdb_path = ini['total_train_lmdb_path']
+            elif tar_mode == 'TEST':
+                crop_img_path = dst_test_crop_img_path
+                gt_fpath = dst_test_gt_path
+                lmdb_path = ini['total_test_lmdb_path']
+
+            create_lmdb_dataset.createDataset(inputPath=crop_img_path, gtFile=gt_fpath, outputPath=lmdb_path)
+        logger.info(" [CREATE-ALL] # Create all lmdb dataset")
+
+    return True
+
 def main_train(ini, model_dir=None, logger=None):
     cuda_ids = ini['cuda_ids'].split(',')
     train_args = ['--train_data', ini['train_lmdb_path'],
@@ -220,6 +317,8 @@ def main(args):
         main_crop(ini['CROP_IMG'], logger=logger)
     elif args.op_mode == 'CREATE_LMDB':
         main_create(ini['CREATE_LMDB'], logger=logger)
+    elif args.op_mode == 'MERGE':
+        main_merge(ini['MERGE'], logger=logger)
     elif args.op_mode == 'TRAIN':
         main_train(ini['TRAIN'], model_dir=args.model_dir, logger=logger)
     elif args.op_mode == 'TEST':
@@ -236,7 +335,7 @@ def main(args):
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--op_mode", required=True, choices=['GENERATE_GT', 'SPLIT_GT', 'CROP_IMG', 'CREATE_LMDB', 'TRAIN', 'TEST', 'TRAIN_TEST'], help="operation mode")
+    parser.add_argument("--op_mode", required=True, choices=['GENERATE_GT', 'SPLIT_GT', 'CROP_IMG', 'CREATE_LMDB', 'MERGE', 'TRAIN', 'TEST', 'TRAIN_TEST'], help="operation mode")
     parser.add_argument("--ini_fname", required=True, help="System code ini filename")
     parser.add_argument("--model_dir", default="", help="Model directory")
 
@@ -249,7 +348,7 @@ def parse_arguments(argv):
 
 
 SELF_TEST_ = True
-OP_MODE = 'CROP_IMG' # GENERATE_GT / SPLIT_GT / CROP_IMG / CREATE_LMDB / TRAIN / TEST / TRAIN_TEST
+OP_MODE = 'TRAIN' # GENERATE_GT / SPLIT_GT / CROP_IMG / CREATE_LMDB or MERGE / TRAIN / TEST / TRAIN_TEST
 INI_FNAME = _this_basename_ + ".ini"
 
 
@@ -264,4 +363,5 @@ if __name__ == "__main__":
             sys.argv.extend(["--help"])
 
     main(parse_arguments(sys.argv[1:]))
+
 
