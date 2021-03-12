@@ -32,8 +32,8 @@ class CTCLabelConverter(object):
         # The index used for padding (=0) would not affect the CTC loss calculation.
         batch_text = torch.LongTensor(len(text), batch_max_length).fill_(0)
         for i, t in enumerate(text):
+            t = t.replace('　', ' ').replace('', ')').replace('º', '°') ### to be removed
             text = encode_truth(t, self.dict)
-            text = text.replace('　', ' ').replace('', ')').replace('º', '°') ### to be removed
 
             try:
                 batch_text[i][:len(text)] = torch.LongTensor(text)
