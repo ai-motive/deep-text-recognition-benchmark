@@ -316,27 +316,27 @@ def main_train(ini, common_info, logger=None):
     for key, val in ini.items():
         vars[key] = cs.replace_string_from_dict(val, common_info)
 
-    cuda_ids = ini['cuda_ids'].split(',')
-    train_args = ['--train_data', ini['train_lmdb_path'],
-                  '--valid_data', ini['test_lmdb_path'],
-                  '--cuda', ini['cuda'],
+    cuda_ids = vars['cuda_ids'].split(',')
+    train_args = ['--train_data', vars['train_lmdb_path'],
+                  '--valid_data', vars['test_lmdb_path'],
+                  '--cuda', vars['cuda'],
                   '--cuda_ids', cuda_ids,
-                  '--workers', ini['workers'],
-                  '--batch_size', ini['batch_size'],
-                  '--num_iter', ini['num_iter'],
-                  # '--saved_model', ini['saved_model'],
-                  '--select_data', ini['select_data'],
-                  '--Transformation', ini['Transformation'],
-                  '--FeatureExtraction', ini['FeatureExtraction'],
-                  '--SequenceModeling', ini['SequenceModeling'],
-                  '--Prediction', ini['Prediction'],
+                  '--workers', vars['workers'],
+                  '--batch_size', vars['batch_size'],
+                  '--num_iter', vars['num_iter'],
+                  # '--saved_model', vars['saved_model'],
+                  '--select_data', vars['select_data'],
+                  '--Transformation', vars['transformation'],
+                  '--FeatureExtraction', vars['featureextraction'],
+                  '--SequenceModeling', vars['sequencemodeling'],
+                  '--Prediction', vars['prediction'],
                   '--data_filtering_off',
-                  # '--batch_ratio', ini['batch_ratio'],
-                  '--batch_max_length', ini['batch_max_length'],
-                  '--imgH', ini['imgH'],
-                  '--imgW', ini['imgW'],
+                  # '--batch_ratio', vars['batch_ratio'],
+                  '--batch_max_length', vars['batch_max_length'],
+                  '--imgH', vars['imgh'],
+                  '--imgW', vars['imgw'],
                   '--PAD',
-                  '--hidden_size', ini['hidden_size']]
+                  '--hidden_size', vars['hidden_size']]
 
     train.main(train_args)
 
@@ -413,7 +413,7 @@ def parse_arguments(argv):
 
 SELF_TEST_ = True
 DATASET_TYPE = KO  # KO / TEXTLINE
-OP_MODE = PREPROCESS_ALL
+OP_MODE = TRAIN
 # PREPROCESS_ALL
 # (GENERATE_GT / SPLIT_GT / CROP_IMG / CREATE_LMDB or MERGE)
 # TRAIN / TEST / TRAIN_TEST

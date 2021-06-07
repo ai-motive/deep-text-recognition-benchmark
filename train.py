@@ -309,9 +309,12 @@ def main(argv):
         # opt.character += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
         opt.character = string.printable[:-6]  # same with ASTER setting (use 94 char).
 
-    character = list(number + symbol + english + ko)
+    # character = list(number + symbol + english + ko)  ## for textline
+    # opt.character = character + math  ## for textline
+
+    character = list(ko)  ## just ko
     print(len(character))
-    opt.character = character + math
+    opt.character = character
 
     """ Seed and GPU setting """
     # print("Random Seed: ", opt.manualSeed)

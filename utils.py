@@ -33,7 +33,12 @@ class CTCLabelConverter(object):
         batch_text = torch.LongTensor(len(text), batch_max_length).fill_(0)
         for i, t in enumerate(text):
             t = t.replace('　', ' ').replace('', ')').replace('º', '°') ### to be removed
-            text = encode_truth(t, self.dict)
+            # text = encode_truth(t, self.dict) # for 수식
+            text = list(t)
+            try:
+                text = [self.dict[char] for char in text]
+            except KeyError as e:
+                print(e)
 
             try:
                 batch_text[i][:len(text)] = torch.LongTensor(text)
@@ -179,8 +184,8 @@ class Averager(object):
 def encode_truth(truth, token_to_id):
     truth_tokens = []
     # remaining_truth = remove_unknown_tokens(truth).strip()
-    positions = cs.extract_formula_positions_from_text(truth)    ##
-    remaining_truth = cs.strip_text_by_positions(truth, positions) ##
+    positions = cs.extract_formula_positions_from_text(truth)    ## for 수식
+    remaining_truth = cs.strip_text_by_positions(truth, positions) ## for 수식
     while len(remaining_truth) > 0:
         try:
             matching_starts = [
