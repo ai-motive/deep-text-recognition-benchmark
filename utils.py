@@ -1,4 +1,4 @@
-from utility import str_utils
+from python_utils.common import string as cs
 import torch
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -179,8 +179,8 @@ class Averager(object):
 def encode_truth(truth, token_to_id):
     truth_tokens = []
     # remaining_truth = remove_unknown_tokens(truth).strip()
-    positions = str_utils.extract_formula_positions_from_text(truth)    ##
-    remaining_truth = str_utils.strip_text_by_positions(truth, positions) ##
+    positions = cs.extract_formula_positions_from_text(truth)    ##
+    remaining_truth = cs.strip_text_by_positions(truth, positions) ##
     while len(remaining_truth) > 0:
         try:
             matching_starts = [
