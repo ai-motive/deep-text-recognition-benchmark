@@ -45,11 +45,11 @@ def main_generate(ini, common_info, logger=None):
         texts = []
         for obj in objects:
             class_name = obj['classTitle']
-            if class_name != common_info['tgt_class'].lower():
+            if class_name != common_info['tgt_class']:
                 continue
 
             text = obj['description']
-            texts.append(text)
+            texts.append(text.strip())
 
         for t_idx, text in enumerate(texts):
             gt_list.append("".join([ann_core_name + '_crop_' + '{0:03d}'.format(t_idx) + '.jpg', '\t', text]))
@@ -73,14 +73,14 @@ def main_split(ini, common_info, logger=None):
 
     if cg.file_exists(vars['train_gt_path']):
         print(" @ Warning: train gt file path, {}, already exists".format(vars["train_gt_path"]))
-        ans = input(" % Proceed (y/n) ? ")
-        if ans.lower() != 'y':
-            sys.exit()
+        # ans = input(" % Proceed (y/n) ? ")
+        # if ans.lower() != 'y':
+        #     sys.exit()
     if cg.file_exists(vars['test_gt_path']):
         print(" @ Warning: test gt file path, {}, already exists".format(vars["test_gt_path"]))
-        ans = input(" % Proceed (y/n) ? ")
-        if ans.lower() != 'y':
-            sys.exit()
+        # ans = input(" % Proceed (y/n) ? ")
+        # if ans.lower() != 'y':
+        #     sys.exit()
 
     # read gt. file
     with open(os.path.join(vars['gt_path'], "labels.txt"), "r", encoding="utf8") as f:
@@ -413,7 +413,7 @@ def parse_arguments(argv):
 
 SELF_TEST_ = True
 DATASET_TYPE = KO  # KO / TEXTLINE
-OP_MODE = TRAIN
+OP_MODE = PREPROCESS_ALL
 # PREPROCESS_ALL
 # (GENERATE_GT / SPLIT_GT / CROP_IMG / CREATE_LMDB or MERGE)
 # TRAIN / TEST / TRAIN_TEST
