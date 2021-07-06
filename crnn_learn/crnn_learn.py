@@ -5,6 +5,7 @@ import subprocess
 import sys
 import create_lmdb_dataset
 import train
+from enum import Enum
 from python_utils.common import general as cg, logger as cl, string as cs
 from python_utils.image import general as ig
 from python_utils.json import general as jg
@@ -17,6 +18,20 @@ _this_basename_ = os.path.splitext(os.path.basename(__file__))[0]
 KO, TEXTLINE = 'KO', 'TEXTLINE'  # DATASET_TYPE
 PREPROCESS_ALL, GENERATE_GT, SPLIT_GT, CROP_IMG, CREATE_LMDB, MERGE, TRAIN, TEST, TRAIN_TEST = \
     'PREPROCESS_ALL', 'GENERATE_GT', 'SPLIT_GT', 'CROP_IMG', 'CREATE_LMDB', 'MERGE', 'TRAIN', 'TEST', 'TRAIN_TEST'
+
+
+# MODEL NAMES (craft / yolov5)
+class ModelName(Enum):
+    CRAFT = 0
+    YOLOv5 = 1
+
+
+# OBJECT NUMBERS (graph, table, ko, math)
+class ObjNum(Enum):
+    GRAPH         = 0
+    TABLE         = 1
+    KO            = 2
+    MATH          = 3
 
 
 def main_generate(ini, common_info, logger=None):
@@ -62,6 +77,7 @@ def main_generate(ini, common_info, logger=None):
     logger.info(" # {} in {} mode finished.".format(_this_basename_, OP_MODE))
     return True
 
+
 def main_split(ini, common_info, logger=None):
     # Init. local variables
     vars = {}
@@ -91,19 +107,23 @@ def main_split(ini, common_info, logger=None):
     # train_gt_list, test_gt_list = train_test_split(gt_list, train_size=train_ratio, random_state=2000)
 
     # Match CRAFT TRAIN & TEST
-    craft_train_list = sorted(cg.get_filenames(vars['craft_train_path'], extensions=cg.TEXT_EXTENSIONS))
-    craft_test_list = sorted(cg.get_filenames(vars['craft_test_path'], extensions=cg.TEXT_EXTENSIONS))
+    ref_train_list = sorted(cg.get_filenames(vars['ref_train_path'], extensions=cg.TEXT_EXTENSIONS))
+    ref_test_list = sorted(cg.get_filenames(vars['ref_test_path'], extensions=cg.TEXT_EXTENSIONS))
 
     crnn_train_list = []
     crnn_test_list = []
     for crnn_gt in crnn_gt_list:
         crnn_fname = crnn_gt.split('\t')[0][:-13] + '.txt'
-        craft_train_fname = os.path.join(vars['craft_train_path'], 'gt_' + crnn_fname)
-        craft_test_fname = os.path.join(vars['craft_test_path'], 'gt_' + crnn_fname)
+        if 'craft' in common_info['ref_dir_name']:
+            ref_train_fname = os.path.join(vars['ref_train_path'], 'gt_' + crnn_fname)
+            ref_test_fname = os.path.join(vars['ref_test_path'], 'gt_' + crnn_fname)
+        else:
+            ref_train_fname = os.path.join(vars['ref_train_path'], crnn_fname)
+            ref_test_fname = os.path.join(vars['ref_test_path'], crnn_fname)
 
-        if craft_train_fname in craft_train_list:
+        if ref_train_fname in ref_train_list:
             crnn_train_list.append(crnn_gt)
-        elif craft_test_fname in craft_test_list:
+        elif ref_test_fname in ref_test_list:
             crnn_test_list.append(crnn_gt)
 
     # Save train.txt file
@@ -119,69 +139,87 @@ def main_split(ini, common_info, logger=None):
     logger.info(" [SPLIT] # Train : Test size  -> {} : {}".format(len(crnn_train_list), len(crnn_test_list)))
     return True
 
+
 def main_crop(ini, common_info, logger=None):
     # Init. local variables
     vars = {}
     for key, val in ini.items():
         vars[key] = cs.replace_string_from_dict(val, common_info)
 
-    craft_train_list = sorted(cg.get_filenames(vars['craft_train_path'], extensions=cg.TEXT_EXTENSIONS))
-    craft_test_list = sorted(cg.get_filenames(vars['craft_test_path'], extensions=cg.TEXT_EXTENSIONS))
-    logger.info(" [CRAFT-TRAIN GT] # Total gt number to be processed: {:d}.".format(len(craft_train_list)))
+    model_name = common_info['ref_dir_name'].split('_')[0]
 
-    for craft_list in [craft_train_list, craft_test_list]:
-        if craft_list is craft_train_list:
+    ref_train_list = sorted(cg.get_filenames(vars['ref_train_path'], extensions=cg.TEXT_EXTENSIONS))
+    ref_test_list = sorted(cg.get_filenames(vars['ref_test_path'], extensions=cg.TEXT_EXTENSIONS))
+    logger.info(" [REF-TRAIN GT] # Total gt number to be processed: {:d}.".format(len(ref_train_list)))
+
+    for ref_list in [ref_train_list, ref_test_list]:
+        if ref_list is ref_train_list:
             tar_mode = TRAIN
-        elif craft_list is craft_test_list:
+        elif ref_list is ref_test_list:
             tar_mode = TEST
 
         available_cpus = len(os.sched_getaffinity(0))
-        mp_inputs = [(craft_fpath, vars, tar_mode) for file_idx, craft_fpath in enumerate(craft_list)]
+        mp_inputs = [(ref_fpath, vars, tar_mode, model_name) for file_idx, ref_fpath in enumerate(ref_list)]
 
         # Multiprocess func.
-        mp.run(func=load_craft_gt_and_save_crop_images, data=mp_inputs,
-               n_workers=available_cpus, n_tasks=len(craft_list), max_queue_size=len(craft_list))
+        mp.run(func=load_ref_gt_and_save_crop_images, data=mp_inputs,
+               n_workers=available_cpus, n_tasks=len(ref_list), max_queue_size=len(ref_list))
 
     return True
 
-def load_craft_gt_and_save_crop_images(craft_fpath, vars, tar_mode):
+def load_ref_gt_and_save_crop_images(ref_fpath, vars, tar_mode, model_name=ModelName.YOLOv5.name.lower()):
+    # Load img info
+    _, core_name, _ = cg.split_fname(ref_fpath)
+    img_fname = core_name.replace('gt_', '')
+    low_tar_mode = tar_mode.lower()  # train / test
+    raw_img_path = os.path.join(vars[f'{low_tar_mode}_img_path'], img_fname + '.jpg')
+    img = ig.imread(raw_img_path, color_fmt='RGB')
+    h, w, c = img.shape
+
     # load craft gt. file
-    with open(craft_fpath, "r", encoding="utf8") as f:
-        craft_infos = f.readlines()
-        for tl_idx, craft_info in enumerate(craft_infos):
-            box = craft_info.split(',')[:8]
-            try:
-                box = [int(pos) for pos in box]
-            except ValueError as e:
-                print(e)
-                continue
+    with open(ref_fpath, "r", encoding="utf8") as f:
+        ref_infos = f.readlines()
+        for tl_idx, ref_info in enumerate(ref_infos):
+            if model_name == ModelName.CRAFT.name.lower():
+                box = ref_info.split(',')[:8]
+                try:
+                    box = [int(pos) for pos in box]
+                except ValueError as e:
+                    print(e)
+                    continue
+                min_x, min_y, max_x, max_y = box[0], box[1], box[4], box[5]
 
-            x1, y1, x3, y3 = box[0], box[1], box[4], box[5]
+            elif model_name == ModelName.YOLOv5.name.lower():
+                coco_data = ref_info.replace('\n', '').split(' ')
+                if len(coco_data) != 5:
+                    continue
+                class_num = int(coco_data[0])
+                if class_num != ObjNum.KO.value:
+                    continue
 
-            _, core_name, _ = cg.split_fname(craft_fpath)
-            img_fname = core_name.replace('gt_', '')
+                max_x_plus_min_x, max_x_minus_min_x  = float(coco_data[1]) * 2 * w, float(coco_data[3]) * w
+                max_y_plus_min_y, max_y_minus_min_y = float(coco_data[2]) * 2 * h, float(coco_data[4]) * h
+
+                double_min_x, double_max_x = (max_x_plus_min_x - max_x_minus_min_x), (max_x_plus_min_x + max_x_minus_min_x)
+                double_min_y, double_max_y = (max_y_plus_min_y - max_y_minus_min_y), (max_y_plus_min_y + max_y_minus_min_y)
+                min_x, max_x = int(double_min_x / 2), int(double_max_x / 2)
+                min_y, max_y = int(double_min_y / 2), int(double_max_y / 2)
+
             crop_img_fname = img_fname + '_crop_' + '{0:03d}'.format(tl_idx)
-
-            if tar_mode == TRAIN:
-                raw_img_path = os.path.join(vars['train_img_path'], img_fname + '.jpg')
-                rst_fpath = os.path.join(vars['train_crop_path'], crop_img_fname + '.jpg')
-            elif tar_mode == TEST:
-                raw_img_path = os.path.join(vars['test_img_path'], img_fname + '.jpg')
-                rst_fpath = os.path.join(vars['test_crop_path'], crop_img_fname + '.jpg')
+            rst_fpath = os.path.join(vars[f'{low_tar_mode}_crop_path'], crop_img_fname + '.jpg')
 
             if not (cg.file_exists(raw_img_path, print_=True)):
                 print("  # Raw image doesn't exists at {}".format(raw_img_path))
                 continue
 
-            img = ig.imread(raw_img_path, color_fmt='RGB')
-            crop_img = img[y1:y3, x1:x3]
+            crop_img = img[min_y:max_y, min_x:max_x]
 
             if cg.file_exists(rst_fpath):
                 print("  # Save image already exists at {}".format(rst_fpath))
                 pass
             else:
                 ig.imwrite(crop_img, rst_fpath)
-                print("  #  ({:d}/{:d}) Saved at {} ".format(tl_idx, len(craft_infos), rst_fpath))
+                print("  #  ({:d}/{:d}) Saved at {} ".format(tl_idx, len(ref_infos), rst_fpath))
 
     return True
 
@@ -413,7 +451,7 @@ def parse_arguments(argv):
 
 SELF_TEST_ = True
 DATASET_TYPE = KO  # KO / TEXTLINE
-OP_MODE = PREPROCESS_ALL
+OP_MODE = TRAIN
 # PREPROCESS_ALL
 # (GENERATE_GT / SPLIT_GT / CROP_IMG / CREATE_LMDB or MERGE)
 # TRAIN / TEST / TRAIN_TEST
