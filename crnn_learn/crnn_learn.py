@@ -3,11 +3,13 @@ import json
 import os
 import subprocess
 import sys
+import datetime
+import shutil
 import create_lmdb_dataset
 import train
 from enum import Enum
 from python_utils.common import general as cg, logger as cl, string as cs
-from python_utils.image import general as ig
+from python_utils.image import general as ig, coordinates as ic
 from python_utils.json import general as jg
 from python_utils.multi_process import multi_process as mp
 
@@ -148,78 +150,83 @@ def main_crop(ini, common_info, logger=None):
 
     model_name = common_info['ref_dir_name'].split('_')[0]
 
-    ref_train_list = sorted(cg.get_filenames(vars['ref_train_path'], extensions=cg.TEXT_EXTENSIONS))
-    ref_test_list = sorted(cg.get_filenames(vars['ref_test_path'], extensions=cg.TEXT_EXTENSIONS))
-    logger.info(" [REF-TRAIN GT] # Total gt number to be processed: {:d}.".format(len(ref_train_list)))
+    ref_train_fpaths = sorted(cg.get_filenames(vars['ref_train_path'], extensions=cg.TEXT_EXTENSIONS))
+    ref_test_fpaths = sorted(cg.get_filenames(vars['ref_test_path'], extensions=cg.TEXT_EXTENSIONS))
+    ref_fpaths = ref_train_fpaths + ref_test_fpaths
+    logger.info(" [CROP] # Total ref. gt file size : {:d}.".format(len(ref_fpaths)))
 
-    for ref_list in [ref_train_list, ref_test_list]:
-        if ref_list is ref_train_list:
+    if cg.file_exists(vars['train_crop_path']):
+        logger.info(f" [CROP] # Train crop dir. is already exist, it's removed !!! : {vars['train_crop_path']}")
+    if cg.file_exists(vars['test_crop_path']):
+        logger.info(f" [CROP] # Test crop dir. is already exist, it's removed !!! : {vars['test_crop_path']}")
+
+    for ref_fpaths in [ref_train_fpaths, ref_test_fpaths]:
+        if ref_fpaths is ref_train_fpaths:
             tar_mode = TRAIN
-        elif ref_list is ref_test_list:
+        elif ref_fpaths is ref_test_fpaths:
             tar_mode = TEST
 
         available_cpus = len(os.sched_getaffinity(0))
-        mp_inputs = [(ref_fpath, vars, tar_mode, model_name) for file_idx, ref_fpath in enumerate(ref_list)]
+        mp_inputs = [(ref_fpath, vars, tar_mode, model_name) for file_idx, ref_fpath in enumerate(ref_fpaths)]
 
         # Multiprocess func.
-        mp.run(func=load_ref_gt_and_save_crop_images, data=mp_inputs,
-               n_workers=available_cpus, n_tasks=len(ref_list), max_queue_size=len(ref_list))
+        mp.run(func=save_crop_images_by_reference_filepath, data=mp_inputs,
+               n_workers=available_cpus, n_tasks=len(ref_fpaths), max_queue_size=len(ref_fpaths))
 
     return True
 
-def load_ref_gt_and_save_crop_images(ref_fpath, vars, tar_mode, model_name=ModelName.YOLOv5.name.lower()):
+def save_crop_images_by_reference_filepath(ref_fpath, vars, tar_mode, model_name=ModelName.YOLOv5.name.lower()):
     # Load img info
     _, core_name, _ = cg.split_fname(ref_fpath)
-    img_fname = core_name.replace('gt_', '')
+    if model_name == ModelName.CRAFT.name.lower():
+        img_fname = core_name.replace('gt_', '')
+    elif model_name == ModelName.YOLOv5.name.lower():
+        img_fname = core_name
+
     low_tar_mode = tar_mode.lower()  # train / test
     raw_img_path = os.path.join(vars[f'{low_tar_mode}_img_path'], img_fname + '.jpg')
+
+    if not (cg.file_exists(raw_img_path, print_=True)):
+        print("  # Raw image doesn't exists at {}".format(raw_img_path))
+        return False
+
     img = ig.imread(raw_img_path, color_fmt='RGB')
     h, w, c = img.shape
 
-    # load craft gt. file
+    # load yolov5 gt. files
+    text_boxes = []
     with open(ref_fpath, "r", encoding="utf8") as f:
         ref_infos = f.readlines()
-        for tl_idx, ref_info in enumerate(ref_infos):
-            if model_name == ModelName.CRAFT.name.lower():
-                box = ref_info.split(',')[:8]
-                try:
-                    box = [int(pos) for pos in box]
-                except ValueError as e:
-                    print(e)
-                    continue
-                min_x, min_y, max_x, max_y = box[0], box[1], box[4], box[5]
-
-            elif model_name == ModelName.YOLOv5.name.lower():
-                coco_data = ref_info.replace('\n', '').split(' ')
-                if len(coco_data) != 5:
-                    continue
-                class_num = int(coco_data[0])
-                if class_num != ObjNum.KO.value:
-                    continue
-
-                max_x_plus_min_x, max_x_minus_min_x  = float(coco_data[1]) * 2 * w, float(coco_data[3]) * w
-                max_y_plus_min_y, max_y_minus_min_y = float(coco_data[2]) * 2 * h, float(coco_data[4]) * h
-
-                double_min_x, double_max_x = (max_x_plus_min_x - max_x_minus_min_x), (max_x_plus_min_x + max_x_minus_min_x)
-                double_min_y, double_max_y = (max_y_plus_min_y - max_y_minus_min_y), (max_y_plus_min_y + max_y_minus_min_y)
-                min_x, max_x = int(double_min_x / 2), int(double_max_x / 2)
-                min_y, max_y = int(double_min_y / 2), int(double_max_y / 2)
-
-            crop_img_fname = img_fname + '_crop_' + '{0:03d}'.format(tl_idx)
-            rst_fpath = os.path.join(vars[f'{low_tar_mode}_crop_path'], crop_img_fname + '.jpg')
-
-            if not (cg.file_exists(raw_img_path, print_=True)):
-                print("  # Raw image doesn't exists at {}".format(raw_img_path))
+        for idx, ref_info in enumerate(ref_infos):
+            coco_data = ref_info.replace('\n', '').split(' ')
+            if len(coco_data) != 5:
+                continue
+            class_num = int(coco_data[0])
+            if class_num != ObjNum.KO.value:
                 continue
 
-            crop_img = img[min_y:max_y, min_x:max_x]
+            max_x_plus_min_x, max_x_minus_min_x  = float(coco_data[1]) * 2 * w, float(coco_data[3]) * w
+            max_y_plus_min_y, max_y_minus_min_y = float(coco_data[2]) * 2 * h, float(coco_data[4]) * h
 
-            if cg.file_exists(rst_fpath):
-                print("  # Save image already exists at {}".format(rst_fpath))
-                pass
-            else:
+            double_min_x, double_max_x = (max_x_plus_min_x - max_x_minus_min_x), (max_x_plus_min_x + max_x_minus_min_x)
+            double_min_y, double_max_y = (max_y_plus_min_y - max_y_minus_min_y), (max_y_plus_min_y + max_y_minus_min_y)
+            min_x, max_x = int(double_min_x / 2), int(double_max_x / 2)
+            min_y, max_y = int(double_min_y / 2), int(double_max_y / 2)
+
+            text_boxes.append([[min_x, min_y], [max_x, max_y]])
+
+        if text_boxes:
+            for t_idx, t_box in enumerate(text_boxes):
+                [[min_x, min_y], [max_x, max_y]] = t_box
+                crop_img_fname = img_fname + '_crop_' + '{0:03d}'.format(t_idx)
+                rst_fpath = os.path.join(vars[f'{low_tar_mode}_crop_path'], crop_img_fname + '.jpg')
+
+                crop_img = img[min_y:max_y, min_x:max_x]
+
                 ig.imwrite(crop_img, rst_fpath)
-                print("  #  ({:d}/{:d}) Saved at {} ".format(tl_idx, len(ref_infos), rst_fpath))
+                print("  #  ({:d}/{:d}) Saved at {} ".format(idx, len(ref_infos), rst_fpath))
+        else:
+            print(f"  #  Reference gt is empty !!! : {ref_fpath}")
 
     return True
 
@@ -318,19 +325,19 @@ def main_merge(ini, common_info, logger=None):
         logger.info(" # Test gt paths : {}".format(test_gt_text_paths))
 
         # Merge all label files
-        with open(dst_train_gt_path, 'w') as outfile:
-            for fpath in train_gt_text_paths:
-                with open(fpath) as infile:
-                    for line in infile:
-                        outfile.write(line)
+        concat_train_gt_text_files_ = cg.concat_text_files(train_gt_text_paths, dst_train_gt_path)
+        if concat_train_gt_text_files_:
+            logger.info(" # Concat success : Train gt text files !!!")
+        else:
+            logger.info(" # Concat fail : Train gt text files !!!")
 
-        with open(dst_test_gt_path, 'w') as outfile:
-            for fpath in test_gt_text_paths:
-                with open(fpath) as infile:
-                    for line in infile:
-                        outfile.write(line)
 
-        logger.info(" # Train & Test gt files are merged !!!")
+        concat_test_gt_text_files_ = cg.concat_text_files(test_gt_text_paths, dst_test_gt_path)
+        if concat_test_gt_text_files_:
+            logger.info(" # Concat success : Test gt text files !!!")
+        else:
+            logger.info(" # Concat fail : Test gt text files !!!")
+
 
         for tar_mode in [TRAIN, TEST]:
             logger.info(" [CREATE-{}] # Create lmdb dataset".format(tar_mode))
@@ -343,8 +350,13 @@ def main_merge(ini, common_info, logger=None):
                 gt_fpath = dst_test_gt_path
                 lmdb_path = vars['total_test_lmdb_path']
 
-            create_lmdb_dataset.createDataset(inputPath=crop_img_path, gtFile=gt_fpath, outputPath=lmdb_path)
-        logger.info(" [CREATE-ALL] # Create all lmdb dataset")
+            if cg.folder_exists(lmdb_path):
+                shutil.rmtree(lmdb_path)
+                create_lmdb_dataset.createDataset(inputPath=crop_img_path, gtFile=gt_fpath, outputPath=lmdb_path)
+                logger.info(f" [CREATE-ALL] # Remove and Create all lmdb dataset : {lmdb_path}")
+            else:
+                create_lmdb_dataset.createDataset(inputPath=crop_img_path, gtFile=gt_fpath, outputPath=lmdb_path)
+                logger.info(" [CREATE-ALL] # Create all lmdb dataset")
 
     return True
 
@@ -355,14 +367,19 @@ def main_train(ini, common_info, logger=None):
         vars[key] = cs.replace_string_from_dict(val, common_info)
 
     cuda_ids = vars['cuda_ids'].split(',')
+
+    now = datetime.datetime.now()
+    exp_name = now.strftime('%y%m%d')
+
     train_args = ['--train_data', vars['train_lmdb_path'],
                   '--valid_data', vars['test_lmdb_path'],
                   '--cuda', vars['cuda'],
                   '--cuda_ids', cuda_ids,
+                  '--exp_name', exp_name,
                   '--workers', vars['workers'],
                   '--batch_size', vars['batch_size'],
                   '--num_iter', vars['num_iter'],
-                  # '--saved_model', vars['saved_model'],
+                  '--saved_model', vars['saved_model'],
                   '--select_data', vars['select_data'],
                   '--Transformation', vars['transformation'],
                   '--FeatureExtraction', vars['featureextraction'],
@@ -377,10 +394,6 @@ def main_train(ini, common_info, logger=None):
                   '--hidden_size', vars['hidden_size']]
 
     train.main(train_args)
-
-    return True
-
-def main_test(ini, common_info, logger=None):
 
     return True
 
@@ -423,12 +436,6 @@ def main(args):
         main_merge(ini[MERGE], common_info, logger=logger)
     elif args.op_mode == TRAIN:
         main_train(ini[TRAIN], common_info, logger=logger)
-    elif args.op_mode == TEST:
-        main_test(ini[TEST], common_info, logger=logger)
-    elif args.op_mode == TRAIN_TEST:
-        ret, model_dir = main_train(ini[TRAIN], common_info, logger=logger)
-        main_test(ini[TEST], model_dir, logger=logger)
-        print(" # Trained model directory is {}".format(model_dir))
     else:
         print(" @ Error: op_mode, {}, is incorrect.".format(args.op_mode))
 
@@ -451,10 +458,10 @@ def parse_arguments(argv):
 
 SELF_TEST_ = True
 DATASET_TYPE = KO  # KO / TEXTLINE
-OP_MODE = TRAIN
+OP_MODE = PREPROCESS_ALL
 # PREPROCESS_ALL
 # (GENERATE_GT / SPLIT_GT / CROP_IMG / CREATE_LMDB or MERGE)
-# TRAIN / TEST / TRAIN_TEST
+# TRAIN
 
 INI_FNAME = _this_basename_ + ".ini"
 
