@@ -156,8 +156,10 @@ def main_crop(ini, common_info, logger=None):
     logger.info(" [CROP] # Total ref. gt file size : {:d}.".format(len(ref_fpaths)))
 
     if cg.file_exists(vars['train_crop_path']):
+        shutil.rmtree(vars['train_crop_path'])
         logger.info(f" [CROP] # Train crop dir. is already exist, it's removed !!! : {vars['train_crop_path']}")
     if cg.file_exists(vars['test_crop_path']):
+        shutil.rmtree(vars['test_crop_path'])
         logger.info(f" [CROP] # Test crop dir. is already exist, it's removed !!! : {vars['test_crop_path']}")
 
     for ref_fpaths in [ref_train_fpaths, ref_test_fpaths]:
